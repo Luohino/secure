@@ -879,15 +879,50 @@
       console.log('Initializing peer...');
       addSystemMessage('Connecting...');
       
-      // Use current username as peer ID
-      peer = new Peer(currentUser.toLowerCase(), {
-        debug: 1
+      // Generate session-based peer ID to avoid conflicts
+      const sessionId = Math.random().toString(36).substr(2, 6);
+      const uniquePeerId = currentUser.toLowerCase() + '-' + sessionId;
+      
+      console.log('Creating peer with ID:', uniquePeerId);
+      addSystemMessage('Initializing with session ID: ' + sessionId);
+      
+      // Use unique peer ID with enhanced config for production
+      peer = new Peer(uniquePeerId, {
+        debug: 1,
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:global.stun.twilio.com:3478' }
+          ]
+        },
+        secure: window.location.protocol === 'https:'
       });
       
       peer.on('open', (id) => {
         console.log('Connected with username:', id);
-        addSystemMessage('Connected as ' + currentUser);
-        addSystemMessage('Type "' + otherUser + '" to connect');
+        console.log('Connection environment:', {
+          protocol: window.location.protocol,
+          host: window.location.host,
+          isSecureContext: window.isSecureContext,
+          userAgent: navigator.userAgent.substr(0, 100)
+        });
+        
+        addSystemMessage('Connected as ' + currentUser + ' (Session: ' + id.split('-')[1] + ')');
+        if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+          addSystemMessage('⚠️ Using HTTP - some features may not work. Use HTTPS for full functionality.');
+        }
+        addSystemMessage('Share this ID with ' + otherUser + ': ' + id);
+        
+        // Try to copy to clipboard
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(id).then(() => {
+            addSystemMessage('✓ Your peer ID copied to clipboard!');
+          }).catch(() => {
+            addSystemMessage('Tap to copy your ID: ' + id);
+          });
+        } else {
+          addSystemMessage('Your peer ID: ' + id);
+        }
         
         // Show simple status
         document.getElementById('statusText').textContent = otherUser + ' is Offline';
@@ -907,8 +942,24 @@
       
       peer.on('error', (err) => {
         console.error('Peer error:', err);
+        console.log('Error details:', {
+          type: err.type,
+          message: err.message,
+          protocol: window.location.protocol,
+          host: window.location.host
+        });
         updateStatus(false);
-        addSystemMessage(`Connection error: ${err.type}`);
+        
+        // More specific error messages for common deployment issues
+        if (err.type === 'ssl-unavailable') {
+          addSystemMessage('SSL Error: Please access the site via HTTPS');
+        } else if (err.type === 'server-error') {
+          addSystemMessage('Server Error: PeerJS server unavailable');
+        } else if (err.type === 'network') {
+          addSystemMessage('Network Error: Check internet connection');
+        } else {
+          addSystemMessage(`Connection error: ${err.type}`);
+        }
       });
       
       peer.on('disconnected', () => {
@@ -917,39 +968,27 @@
       });
     }
     
-    // Show connection input with pre-filled name
+    // Show connection input for peer ID entry
     function showConnectionInput() {
       connectSection.style.display = 'block';
-      // Pre-fill the other user's name (not current user) with proper case
-      friendIdInput.value = otherUser;
+      // Clear input for manual ID entry
+      friendIdInput.value = '';
+      friendIdInput.placeholder = 'Enter ' + otherUser + '\'s peer ID';
       friendIdInput.focus();
-      friendIdInput.select();
     }
     
-    // Simple username connect function
+    // Connect to peer using their unique ID
     function connectToFriend() {
-      let friendName = friendIdInput.value.trim();
+      const peerId = friendIdInput.value.trim();
       
-      if (!friendName) {
-        alert('Please enter username (Luohino or Tanaya)');
+      if (!peerId) {
+        addSystemMessage('Please enter the peer ID');
         return;
       }
       
-      // Auto-correct case and validate
-      if (friendName.toLowerCase() === 'luohino') {
-        friendName = 'luohino';
-      } else if (friendName.toLowerCase() === 'tanaya') {
-        friendName = 'tanaya';
-      } else {
-        addSystemMessage('Error: Please enter "Luohino" or "Tanaya"');
-        friendIdInput.focus();
-        friendIdInput.select();
-        return;
-      }
-      
-      // Prevent self-connection with better error messaging
-      if (friendName === currentUser.toLowerCase()) {
-        addSystemMessage('Error: Cannot connect to yourself. Please enter the other user\'s name.');
+      // Prevent self-connection
+      if (peerId === peer.id) {
+        addSystemMessage('Error: Cannot connect to yourself. Please enter ' + otherUser + '\'s peer ID.');
         friendIdInput.focus();
         friendIdInput.select();
         return;
@@ -960,12 +999,12 @@
         return;
       }
       
-      addSystemMessage('Connecting to ' + friendName + '...');
+      addSystemMessage('Connecting to peer ID: ' + peerId + '...');
       
-      connection = peer.connect(friendName);
+      connection = peer.connect(peerId);
       
       connection.on('open', () => {
-        console.log('Connected to ' + friendName + '!');
+        console.log('Connected to peer:', peerId);
         setupConnectionHandlers();
         onConnectionEstablished();
       });
@@ -973,9 +1012,10 @@
       connection.on('error', (err) => {
         console.log('Connection failed:', err);
         if (err.type === 'unavailable-id') {
-          addSystemMessage('Connection failed: ' + friendName + ' is not online or does not exist.');
+          addSystemMessage('Connection failed: Peer ID ' + peerId + ' is not online or does not exist.');
+          addSystemMessage('Ask ' + otherUser + ' to share their current peer ID.');
         } else {
-          addSystemMessage('Connection failed: ' + err.type + '. Is ' + friendName + ' online?');
+          addSystemMessage('Connection failed: ' + err.type + '. Check the peer ID.');
         }
         connection = null;
         // Show connection input again
@@ -997,6 +1037,65 @@
     let localAnalyser = null;
     let remoteAnalyser = null;
     let voiceDetectionInterval = null;
+    
+    // Wake lock for keeping screen on during calls
+    let wakeLock = null;
+    
+    async function requestWakeLock() {
+      try {
+        if ('wakeLock' in navigator) {
+          wakeLock = await navigator.wakeLock.request('screen');
+          console.log('Wake lock active');
+          addSystemMessage('Screen will stay on during call');
+          
+          wakeLock.addEventListener('release', () => {
+            console.log('Wake lock released');
+          });
+        }
+      } catch (err) {
+        console.log('Wake lock failed:', err);
+      }
+    }
+    
+    // Mobile audio session management
+    function setupMobileAudioSession() {
+      // Request audio focus and prevent audio interruption
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: 'Secure Chat Call',
+          artist: 'Voice/Video Call Active',
+          artwork: []
+        });
+        
+        navigator.mediaSession.setActionHandler('pause', () => {
+          console.log('Media session pause requested - ignoring');
+          // Don't actually pause the call
+        });
+        
+        navigator.mediaSession.setActionHandler('play', () => {
+          console.log('Media session play requested');
+          if (remoteVideo && remoteVideo.paused) {
+            remoteVideo.play();
+          }
+        });
+      }
+      
+      // Mobile-specific audio context handling
+      if (localAudioContext && localAudioContext.state === 'suspended') {
+        localAudioContext.resume();
+      }
+      if (remoteAudioContext && remoteAudioContext.state === 'suspended') {
+        remoteAudioContext.resume();
+      }
+    }
+    
+    function releaseWakeLock() {
+      if (wakeLock) {
+        wakeLock.release();
+        wakeLock = null;
+        console.log('Wake lock released manually');
+      }
+    }
     
     function setupVoiceDetection(localStream, remoteStream) {
       try {
@@ -1248,18 +1347,37 @@
             // Always use remoteVideo element for audio/video
             remoteVideo.srcObject = remoteStream;
             
-            // Force play the stream
-            remoteVideo.play().then(() => {
-              console.log('Remote stream playing successfully');
-            }).catch(e => {
-              console.log('Stream play error:', e);
-              // Try to play again
-              setTimeout(() => remoteVideo.play(), 1000);
-            });
-            
-            // Ensure audio is enabled
+            // Enhanced mobile video/audio setup
+            remoteVideo.setAttribute('playsinline', 'true');
+            remoteVideo.setAttribute('autoplay', 'true');
+            remoteVideo.setAttribute('controls', 'false');
             remoteVideo.muted = false;
             remoteVideo.volume = 1.0;
+            remoteVideo.style.pointerEvents = 'none'; // Prevent accidental taps
+            
+            // Force play the stream with multiple attempts
+            const playStream = async () => {
+              try {
+                await remoteVideo.play();
+                console.log('Remote stream playing successfully');
+              } catch (e) {
+                console.log('Stream play error:', e);
+                // Try multiple times for mobile compatibility
+                setTimeout(async () => {
+                  try {
+                    await remoteVideo.play();
+                  } catch (e2) {
+                    console.log('Retry play error:', e2);
+                    // Final attempt with user interaction simulation
+                    setTimeout(() => {
+                      remoteVideo.play().catch(e3 => console.log('Final play attempt failed:', e3));
+                    }, 2000);
+                  }
+                }, 1000);
+              }
+            };
+            
+            playStream();
             
             if (video) {
               addSystemMessage('Video call connected');
@@ -1267,8 +1385,17 @@
               addSystemMessage('Voice call connected');
             }
             
+            // Request wake lock to keep screen on
+            requestWakeLock();
+            
+            // Setup mobile audio session
+            setupMobileAudioSession();
+            
             // Setup voice activity detection with both streams
             setupVoiceDetection(localStream, remoteStream);
+            
+            // Start call health monitoring
+            startCallHealthCheck();
             
             // Update button text for switching
             updateCallButtonsForActiveCall();
@@ -1291,7 +1418,26 @@
         })
         .catch((err) => {
           console.error('Failed to get media:', err);
-          addSystemMessage('Failed to access microphone/camera: ' + err.message);
+          console.log('Media error details:', {
+            name: err.name,
+            message: err.message,
+            constraint: err.constraint,
+            protocol: window.location.protocol,
+            isSecure: window.isSecureContext
+          });
+          
+          // More specific error messages for common deployment issues
+          if (err.name === 'NotAllowedError') {
+            addSystemMessage('Camera/microphone permission denied. Please allow access and try again.');
+          } else if (err.name === 'NotFoundError') {
+            addSystemMessage('No camera/microphone found. Check your device settings.');
+          } else if (err.name === 'NotSecureError' || !window.isSecureContext) {
+            addSystemMessage('HTTPS required for camera/microphone access. Please use HTTPS.');
+          } else if (err.name === 'NotReadableError') {
+            addSystemMessage('Camera/microphone is being used by another application.');
+          } else {
+            addSystemMessage('Failed to access microphone/camera: ' + err.message);
+          }
         });
     }
     
@@ -1354,6 +1500,12 @@
             remoteVideo.muted = false;
             remoteVideo.volume = 1.0;
             
+            // Request wake lock for screen sharing
+            requestWakeLock();
+            
+            // Setup mobile audio session for screen sharing
+            setupMobileAudioSession();
+            
             // Setup voice activity detection for screen sharing
             setupVoiceDetection(localStream, remoteStream);
           });
@@ -1383,7 +1535,22 @@
         })
         .catch((err) => {
           console.error('Failed to get screen:', err);
-          addSystemMessage('Failed to access screen: ' + err.message);
+          console.log('Screen share error details:', {
+            name: err.name,
+            message: err.message,
+            protocol: window.location.protocol,
+            isSecure: window.isSecureContext
+          });
+          
+          if (err.name === 'NotAllowedError') {
+            addSystemMessage('Screen sharing permission denied. Please allow access and try again.');
+          } else if (err.name === 'NotSecureError' || !window.isSecureContext) {
+            addSystemMessage('HTTPS required for screen sharing. Please use HTTPS.');
+          } else if (err.name === 'AbortError') {
+            addSystemMessage('Screen sharing cancelled by user.');
+          } else {
+            addSystemMessage('Failed to access screen: ' + err.message);
+          }
         });
     }
     
@@ -1406,30 +1573,60 @@
               const videoTracks = remoteStream.getVideoTracks();
               const hasVideo = videoTracks.length > 0 && videoTracks[0].enabled;
               
-              // Check if it's screen sharing by looking at the track label
-              const isScreenShare = videoTracks.length > 0 && 
-                (videoTracks[0].label.includes('screen') || 
-                 videoTracks[0].label.includes('Screen') ||
-                 videoTracks[0].getSettings().displaySurface === 'monitor');
+              // Enhanced screen sharing detection for mobile
+              const isScreenShare = videoTracks.length > 0 && (
+                videoTracks[0].label.includes('screen') || 
+                videoTracks[0].label.includes('Screen') ||
+                videoTracks[0].label.includes('monitor') ||
+                videoTracks[0].label.includes('application') ||
+                videoTracks[0].label.includes('window') ||
+                (videoTracks[0].getSettings && 
+                 (videoTracks[0].getSettings().displaySurface === 'monitor' ||
+                  videoTracks[0].getSettings().displaySurface === 'application' ||
+                  videoTracks[0].getSettings().displaySurface === 'window')) ||
+                // Check video dimensions (screen shares are usually larger)
+                (videoTracks[0].getSettings && 
+                 videoTracks[0].getSettings().width > 1000)
+              );
               
               console.log('Remote stream has video:', hasVideo, 'isScreenShare:', isScreenShare);
+              console.log('Video track details:', {
+                label: videoTracks[0]?.label,
+                settings: videoTracks[0]?.getSettings ? videoTracks[0].getSettings() : 'not available'
+              });
               
-              if (hasVideo) {
-                // Show video container for both video calls and screen sharing
+              if (hasVideo || isScreenShare) {
+                // Always show video container for video calls and screen sharing
                 localVideo.srcObject = stream;
                 remoteVideo.srcObject = remoteStream;
                 videoContainer.classList.remove('hidden');
                 
+                // Force video element to be visible and properly sized
+                remoteVideo.style.display = 'block';
+                remoteVideo.style.width = '100%';
+                remoteVideo.style.height = 'auto';
+                remoteVideo.setAttribute('playsinline', 'true');
+                remoteVideo.setAttribute('autoplay', 'true');
+                
                 if (isScreenShare) {
-                  addSystemMessage('Screen sharing received');
+                  addSystemMessage('📺 Screen sharing received - showing video');
+                  // Make sure screen share is visible on mobile
+                  remoteVideo.style.objectFit = 'contain';
                 } else {
-                  addSystemMessage('Video call answered');
+                  addSystemMessage('📹 Video call answered');
+                  remoteVideo.style.objectFit = 'cover';
                 }
               } else {
-                // Voice only call - hide video container
-                videoContainer.classList.add('hidden');
+                // Voice only call - still set up remote stream but hide video
                 remoteVideo.srcObject = remoteStream;
-                addSystemMessage('Voice call answered');
+                if (videoTracks.length > 0) {
+                  // Has video track but disabled - might be screen share, show it anyway
+                  videoContainer.classList.remove('hidden');
+                  addSystemMessage('🔊 Audio with video stream received');
+                } else {
+                  videoContainer.classList.add('hidden');
+                  addSystemMessage('🔊 Voice call answered');
+                }
               }
               
               // Force play and enable audio
@@ -1442,6 +1639,12 @@
               
               remoteVideo.muted = false;
               remoteVideo.volume = 1.0;
+              
+              // Request wake lock for incoming call
+              requestWakeLock();
+              
+              // Setup mobile audio session for incoming call
+              setupMobileAudioSession();
               
               // Setup voice activity detection for incoming call
               setupVoiceDetection(stream, remoteStream);
@@ -1466,6 +1669,19 @@
           })
           .catch((err) => {
             console.error('Failed to answer call:', err);
+            console.log('Incoming call media error:', {
+              name: err.name,
+              message: err.message,
+              protocol: window.location.protocol,
+              isSecure: window.isSecureContext
+            });
+            
+            if (err.name === 'NotSecureError' || !window.isSecureContext) {
+              addSystemMessage('HTTPS required for camera/microphone. Trying audio-only...');
+            } else {
+              addSystemMessage('Camera access failed. Trying audio-only...');
+            }
+            
             // Try to answer without video if camera fails
             navigator.mediaDevices.getUserMedia({ audio: true, video: false })
               .then((audioStream) => {
@@ -1509,6 +1725,12 @@
       // Stop voice detection
       stopVoiceDetection();
       
+      // Stop call health monitoring
+      stopCallHealthCheck();
+      
+      // Release wake lock
+      releaseWakeLock();
+      
       endCallBtn.disabled = true;
       enableCallButtons();
       
@@ -1549,6 +1771,108 @@
       }
     });
     
+    // Enhanced background handling to maintain calls
+    let backgroundTimer = null;
+    let isInBackground = false;
+    let callHealthTimer = null;
+    
+    // Call health monitoring
+    function startCallHealthCheck() {
+      if (callHealthTimer) clearInterval(callHealthTimer);
+      
+      callHealthTimer = setInterval(() => {
+        if (currentCall && currentCall.open) {
+          // Ensure audio continues playing
+          if (remoteVideo && remoteVideo.paused) {
+            console.log('Detected paused audio, restarting...');
+            remoteVideo.play().catch(e => console.log('Health check play error:', e));
+          }
+          
+          // Resume audio contexts if suspended
+          if (localAudioContext && localAudioContext.state === 'suspended') {
+            localAudioContext.resume();
+          }
+          if (remoteAudioContext && remoteAudioContext.state === 'suspended') {
+            remoteAudioContext.resume();
+          }
+          
+          // Check connection quality
+          if (currentCall.peerConnection) {
+            currentCall.peerConnection.getStats().then(stats => {
+              stats.forEach(report => {
+                if (report.type === 'inbound-rtp' && report.kind === 'audio') {
+                  if (report.packetsLost > 50) {
+                    console.log('High packet loss detected:', report.packetsLost);
+                  }
+                }
+              });
+            }).catch(e => console.log('Stats error:', e));
+          }
+        } else {
+          // Call ended, stop health check
+          clearInterval(callHealthTimer);
+          callHealthTimer = null;
+        }
+      }, 3000); // Check every 3 seconds
+    }
+    
+    function stopCallHealthCheck() {
+      if (callHealthTimer) {
+        clearInterval(callHealthTimer);
+        callHealthTimer = null;
+      }
+    }
+    
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        console.log('App went to background');
+        isInBackground = true;
+        
+        if (currentCall && currentCall.open) {
+          addSystemMessage('📱 App in background - maintaining call...');
+          
+          // Keep connection alive with periodic checks
+          backgroundTimer = setInterval(() => {
+            if (currentCall && currentCall.open) {
+              console.log('Background: Call still active');
+              // Ensure audio continues playing
+              if (remoteVideo.paused) {
+                remoteVideo.play().catch(e => console.log('Background play error:', e));
+              }
+            } else {
+              console.log('Call lost in background');
+              clearInterval(backgroundTimer);
+            }
+          }, 5000); // Check every 5 seconds
+        }
+      } else {
+        console.log('App came to foreground');
+        isInBackground = false;
+        
+        if (backgroundTimer) {
+          clearInterval(backgroundTimer);
+          backgroundTimer = null;
+        }
+        
+        if (currentCall && currentCall.open) {
+          addSystemMessage('✅ App active - call maintained!');
+          // Ensure video/audio is playing
+          if (remoteVideo.srcObject) {
+            remoteVideo.play().catch(e => console.log('Foreground play error:', e));
+          }
+        }
+      }
+    });
+    
+    // Page unload/reload detection
+    window.addEventListener('beforeunload', (e) => {
+      if (currentCall && currentCall.open) {
+        e.preventDefault();
+        e.returnValue = 'You are currently in a call. Are you sure you want to leave?';
+        return e.returnValue;
+      }
+    });
+    
     // Online/Offline detection
     window.addEventListener('online', () => {
       addSystemMessage('Internet connected');
@@ -1560,6 +1884,9 @@
     window.addEventListener('offline', () => {
       addSystemMessage('Internet disconnected');
       updateStatus(false);
+      if (currentCall && currentCall.open) {
+        addSystemMessage('Call may be interrupted due to network loss');
+      }
     });
     
     // Note: Retry logic is now handled in initializePeer function
