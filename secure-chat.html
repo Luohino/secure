@@ -1,0 +1,1568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Luohino Chat</title>
+  
+  <!-- Local libraries for better security -->
+  <script src="./peerjs.min.js"></script>
+  <script src="./crypto-js.min.js"></script>
+  
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    
+    body {
+      background: #e6e7ee;
+      background-image: 
+        radial-gradient(circle at 25% 25%, #f0f0f3 0%, transparent 50%),
+        radial-gradient(circle at 75% 75%, #dddde3 0%, transparent 50%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+    
+    /* Ensure only one screen is visible */
+    .screen-container {
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    
+    .container {
+      background: #e6e7ee;
+      border-radius: 25px;
+      padding: 30px;
+      width: 100%;
+      box-shadow: 
+        20px 20px 60px #bebfc5,
+        -20px -20px 60px #ffffff;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    
+    /* Login screen - small and centered */
+    #loginScreen {
+      max-width: 420px;
+    }
+    
+    /* Chat screen - landscape layout on desktop */
+    #chatScreen {
+      max-width: 900px;
+      max-height: 90vh;
+      overflow-y: auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 30px;
+      align-items: start;
+    }
+    
+    /* Ensure chat screen starts hidden */
+    #chatScreen.hidden {
+      display: none !important;
+    }
+    
+    .left-panel {
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .right-panel {
+      display: flex;
+      flex-direction: column;
+    }
+    
+    /* Mobile responsive - portrait layout */
+    @media (max-width: 768px) {
+      .container {
+        padding: 25px;
+      }
+      
+      #loginScreen {
+        max-width: 380px;
+      }
+      
+      #chatScreen {
+        max-width: 420px;
+        grid-template-columns: 1fr;
+        gap: 20px;
+      }
+      
+      .left-panel,
+      .right-panel {
+        width: 100%;
+      }
+    }
+    
+    .hidden { 
+      display: none !important;
+      visibility: hidden !important;
+      opacity: 0 !important;
+    }
+    
+    h1, h2 {
+      text-align: center;
+      margin-bottom: 25px;
+      color: #4a4a4a;
+      font-weight: 600;
+      letter-spacing: -0.5px;
+    }
+    
+    h1 {
+      font-size: 24px;
+      margin-bottom: 15px;
+    }
+    
+    h2 {
+      font-size: 18px;
+      font-weight: 500;
+      color: #666;
+    }
+    
+    .user-selection {
+      display: flex;
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+    
+    .user-option {
+      flex: 1;
+      padding: 18px 20px;
+      background: #e6e7ee;
+      color: #4a4a4a;
+      border: none;
+      border-radius: 18px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 
+        8px 8px 16px #bebfc5,
+        -8px -8px 16px #ffffff;
+      position: relative;
+    }
+    
+    .user-option:hover {
+      box-shadow: 
+        12px 12px 24px #bebfc5,
+        -12px -12px 24px #ffffff;
+    }
+    
+    .user-option:active {
+      box-shadow: 
+        inset 4px 4px 8px #bebfc5,
+        inset -4px -4px 8px #ffffff;
+    }
+    
+    .user-option.selected {
+      box-shadow: 
+        inset 6px 6px 12px #bebfc5,
+        inset -6px -6px 12px #ffffff;
+      color: #2563eb;
+    }
+    
+    input[type="password"], input[type="text"] {
+      width: 100%;
+      padding: 16px 20px;
+      border: none;
+      border-radius: 16px;
+      font-size: 15px;
+      margin-bottom: 20px;
+      transition: all 0.3s ease;
+      background: #e6e7ee;
+      color: #4a4a4a;
+      box-shadow: 
+        inset 6px 6px 12px #bebfc5,
+        inset -6px -6px 12px #ffffff;
+    }
+    
+    input:focus {
+      outline: none;
+      box-shadow: 
+        inset 8px 8px 16px #bebfc5,
+        inset -8px -8px 16px #ffffff;
+    }
+    
+    input::placeholder {
+      color: #999;
+    }
+    .password-container input {
+      margin-bottom: 0;
+      padding-right: 50px;
+    }
+    
+    .password-toggle {
+      position: absolute;
+      right: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: #e6e7ee;
+      border: none;
+      font-size: 14px;
+      cursor: pointer;
+      padding: 8px;
+      border-radius: 50%;
+      transition: all 0.3s ease;
+      color: #666;
+      box-shadow: 
+        3px 3px 6px #bebfc5,
+        -3px -3px 6px #ffffff;
+    }
+    
+    .password-toggle:hover {
+      box-shadow: 
+        4px 4px 8px #bebfc5,
+        -4px -4px 8px #ffffff;
+    }
+    
+    .password-toggle:active {
+      box-shadow: 
+        inset 2px 2px 4px #bebfc5,
+        inset -2px -2px 4px #ffffff;
+    }
+    
+    .quick-passwords {
+      margin-bottom: 20px;
+    }
+    
+    .quick-password-label {
+      text-align: center;
+      font-size: 13px;
+      color: #888;
+      margin-bottom: 12px;
+      font-weight: 500;
+    }
+    
+    .password-buttons {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+    
+    .password-btn {
+      padding: 10px 8px;
+      background: #e6e7ee;
+      color: #666;
+      border: none;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-family: monospace;
+      letter-spacing: 0.5px;
+      box-shadow: 
+        4px 4px 8px #bebfc5,
+        -4px -4px 8px #ffffff;
+    }
+    
+    .password-btn:hover {
+      box-shadow: 
+        6px 6px 12px #bebfc5,
+        -6px -6px 12px #ffffff;
+    }
+    
+    .password-btn:active {
+      box-shadow: 
+        inset 2px 2px 4px #bebfc5,
+        inset -2px -2px 4px #ffffff;
+      color: #4a4a4a;
+    }
+    
+    input:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+    }
+    
+    .btn {
+      width: 100%;
+      padding: 16px;
+      background: #e6e7ee;
+      color: #4a4a4a;
+      border: none;
+      border-radius: 16px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      margin-bottom: 15px;
+      box-shadow: 
+        8px 8px 16px #bebfc5,
+        -8px -8px 16px #ffffff;
+    }
+    
+    .btn:hover:not(:disabled) {
+      box-shadow: 
+        12px 12px 24px #bebfc5,
+        -12px -12px 24px #ffffff;
+    }
+    
+    .btn:active:not(:disabled) {
+      box-shadow: 
+        inset 4px 4px 8px #bebfc5,
+        inset -4px -4px 8px #ffffff;
+    }
+    
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      color: #999;
+    }
+    
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 16px;
+      border-radius: 16px;
+      margin-bottom: 25px;
+      font-weight: 500;
+      font-size: 14px;
+      background: #e6e7ee;
+      color: #4a4a4a;
+      box-shadow: 
+        inset 3px 3px 6px #bebfc5,
+        inset -3px -3px 6px #ffffff;
+    }
+    
+    .status-online {
+      color: #16a34a;
+    }
+    
+    .status-offline {
+      color: #dc2626;
+    }
+    
+    /* Voice activity indicator */
+    .voice-activity {
+      padding: 12px;
+      border-radius: 14px;
+      background: #e6e7ee;
+      margin-bottom: 20px;
+      box-shadow:
+        inset 3px 3px 6px #bebfc5,
+        inset -3px -3px 6px #ffffff;
+    }
+    .voice-indicator {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #4a4a4a;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .voice-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #9ca3af; /* gray when idle */
+      box-shadow: 0 0 0 3px rgba(255,255,255,0.6);
+      transition: background 0.2s ease, transform 0.1s ease;
+    }
+    .speaking-self .voice-dot { background: #10b981; transform: scale(1.2); }
+    .speaking-peer .voice-dot { background: #3b82f6; transform: scale(1.2); }
+    .speaking-none .voice-dot { background: #9ca3af; transform: scale(1.0); }
+    
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      animation: pulse 2s infinite;
+      box-shadow: 0 0 0 2px rgba(255,255,255,0.3);
+    }
+    
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.5; }
+      100% { opacity: 1; }
+    }
+    
+    .call-controls {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+    
+    .control-btn {
+      padding: 14px 16px;
+      border: none;
+      border-radius: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      background: #e6e7ee;
+      color: #4a4a4a;
+      box-shadow: 
+        6px 6px 12px #bebfc5,
+        -6px -6px 12px #ffffff;
+    }
+    
+    .control-btn:hover:not(:disabled) {
+      box-shadow: 
+        8px 8px 16px #bebfc5,
+        -8px -8px 16px #ffffff;
+    }
+    
+    .control-btn:active:not(:disabled) {
+      box-shadow: 
+        inset 3px 3px 6px #bebfc5,
+        inset -3px -3px 6px #ffffff;
+    }
+    
+    .control-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      color: #999;
+    }
+    
+    
+    .audio-controls {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    
+    .audio-control-btn {
+      flex: 1;
+      padding: 10px 8px;
+      border: none;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      background: #e6e7ee;
+      color: #666;
+      box-shadow: 
+        4px 4px 8px #bebfc5,
+        -4px -4px 8px #ffffff;
+    }
+    
+    .audio-control-btn:hover {
+      box-shadow: 
+        5px 5px 10px #bebfc5,
+        -5px -5px 10px #ffffff;
+    }
+    
+    .audio-control-btn.active {
+      box-shadow: 
+        inset 2px 2px 4px #bebfc5,
+        inset -2px -2px 4px #ffffff;
+      color: #4a4a4a;
+    }
+    
+    .video-container {
+      display: flex;
+      gap: 15px;
+      margin-bottom: 20px;
+      justify-content: center;
+    }
+    
+    .video-wrapper {
+      text-align: center;
+    }
+    
+    .video-wrapper video {
+      width: 150px;
+      height: 100px;
+      border-radius: 15px;
+      background: #000;
+      object-fit: cover;
+      border: 3px solid rgba(102, 126, 234, 0.3);
+    }
+    
+    .video-label {
+      font-size: 12px;
+      color: #666;
+      margin-top: 5px;
+      font-weight: bold;
+    }
+    
+    .messages-container {
+      background: #e6e7ee;
+      border-radius: 15px;
+      padding: 20px;
+      min-height: 300px;
+      max-height: 400px;
+      overflow-y: auto;
+      margin-bottom: 15px;
+      box-shadow: 
+        inset 6px 6px 12px #bebfc5,
+        inset -6px -6px 12px #ffffff;
+    }
+    
+    @media (max-width: 768px) {
+      .messages-container {
+        min-height: 200px;
+        max-height: 250px;
+      }
+    }
+    
+    .message {
+      padding: 10px 15px;
+      margin-bottom: 10px;
+      border-radius: 20px;
+      max-width: 80%;
+      word-wrap: break-word;
+    }
+    
+    .message.sent {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      margin-left: auto;
+      text-align: right;
+    }
+    
+    .message.received {
+      background: white;
+      border: 2px solid #e0e6ed;
+      color: #2c3e50;
+    }
+    
+    .message.system {
+      background: linear-gradient(135deg, #ffa502, #ff6348);
+      color: white;
+      text-align: center;
+      margin: 10px auto;
+      font-style: italic;
+    }
+    
+    .input-group {
+      display: flex;
+      gap: 10px;
+    }
+    
+    .input-group input {
+      flex: 1;
+      margin-bottom: 0;
+    }
+    
+    .input-group button {
+      width: auto;
+      padding: 15px 25px;
+      margin-bottom: 0;
+    }
+    
+    .encryption-badge {
+      text-align: center;
+      padding: 10px;
+      background: transparent;
+      color: #888;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 400;
+      margin-top: 10px;
+      margin-bottom: 0;
+      font-style: italic;
+    }
+    
+    .user-info {
+      text-align: center;
+      padding: 15px;
+      background: rgba(102, 126, 234, 0.1);
+      border-radius: 15px;
+      margin-bottom: 20px;
+    }
+    
+    .user-avatar {
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      background: #e6e7ee;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #4a4a4a;
+      font-size: 16px;
+      font-weight: 600;
+      margin: 0 auto 10px;
+      box-shadow: 
+        8px 8px 16px #bebfc5,
+        -8px -8px 16px #ffffff;
+    }
+  </style>
+</head>
+<body>
+  <!-- Login Screen -->
+  <div id="loginScreen" class="container">
+    <h1>Luohino Chat</h1>
+    <h2>Select User</h2>
+    
+    <div class="user-selection">
+      <button class="user-option" data-user="Luohino">
+        Luohino
+      </button>
+      <button class="user-option" data-user="Tanaya">
+        Tanaya
+      </button>
+    </div>
+    
+    <div class="password-container">
+      <input type="password" id="passwordInput" placeholder="Enter password" maxlength="20" />
+      <button class="password-toggle" id="passwordToggle" type="button">👁</button>
+    </div>
+    
+    <div class="quick-passwords">
+      <div class="quick-password-label">Quick Login:</div>
+      <div class="password-buttons">
+        <button class="password-btn" data-password="a1n2i3k4e5t6">a1n2i3k4e5t6</button>
+        <button class="password-btn" data-password="l1u2o3h4i5n6o7">l1u2o3h4i5n6o7</button>
+        <button class="password-btn" data-password="t1a2n3a4y5a6">t1a2n3a4y5a6</button>
+        <button class="password-btn" data-password="d1e2m3o4u5s6e7r8">1e2m3o4u5s6e7r8</button>
+      </div>
+    </div>
+    
+    <button class="btn" id="loginBtn" disabled>Login</button>
+    
+    <div class="encryption-badge">
+      Made by Luohino
+    </div>
+  </div>
+  
+  <!-- Main Chat Screen -->
+  <div id="chatScreen" class="container hidden">
+    <div class="left-panel">
+      <div class="user-info">
+        <div class="user-avatar" id="userAvatar"></div>
+        <div id="userName"></div>
+      </div>
+      
+      <div id="statusIndicator" class="status-indicator status-offline">
+        <div class="status-dot"></div>
+        <span id="statusText">Connecting...</span>
+      </div>
+      
+      <!-- Voice Activity Indicator -->
+      <div class="voice-activity hidden" id="voiceActivity">
+        <div class="voice-indicator">
+          <div class="voice-dot" id="voiceDot"></div>
+          <span id="voiceText">No one speaking</span>
+        </div>
+      </div>
+      
+      <!-- Call Controls -->
+      <div class="call-controls">
+        <button class="control-btn voice-btn" id="voiceCallBtn">
+          Voice Call
+        </button>
+        <button class="control-btn video-btn" id="videoCallBtn">
+          Video Call
+        </button>
+        <button class="control-btn screen-btn" id="screenShareBtn">
+          Screen Share
+        </button>
+        <button class="control-btn end-btn" id="endCallBtn" disabled>
+          End Call
+        </button>
+      </div>
+      
+      <!-- Audio Controls -->
+      <div class="audio-controls hidden" id="audioControls">
+        <button class="audio-control-btn" id="muteBtn">Mute</button>
+        <button class="audio-control-btn" id="speakerBtn">Speaker</button>
+        <button class="audio-control-btn" id="bluetoothBtn">Bluetooth</button>
+        <button class="audio-control-btn" id="micBtn">Microphone</button>
+      </div>
+      
+      <!-- Video Display -->
+      <div class="video-container hidden" id="videoContainer">
+        <div class="video-wrapper">
+          <video id="localVideo" autoplay muted playsinline></video>
+          <div class="video-label">You</div>
+        </div>
+        <div class="video-wrapper">
+          <video id="remoteVideo" autoplay playsinline controls></video>
+          <div class="video-label" id="remoteLabel">Waiting...</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="right-panel">
+      <!-- Connection Input (shown initially) -->
+      <div class="connect-section" id="connectSection">
+        <div class="input-group">
+          <input type="text" id="friendIdInput" placeholder="Type 'Luohino' or 'Tanaya' to connect" />
+          <button class="btn" id="connectBtn">Connect</button>
+        </div>
+      </div>
+      
+      <!-- Messages -->
+      <div class="messages-container" id="messagesContainer"></div>
+      
+      <!-- Message Input -->
+      <div class="input-group">
+        <input type="text" id="messageInput" placeholder="Type your message..." />
+        <button class="btn" id="sendBtn">Send</button>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    // Configuration
+    const VALID_PASSWORDS = [
+      'a1n2i3k4e5t6',      // Default
+      'l1u2o3h4i5n6o7',    // Luohino
+      't1a2n3a4y5a6',      // Tanaya
+      'd1e2m3o4u5s6e7r8'   // Demo
+    ];
+    const ENCRYPTION_KEY = 'SecureChat2024!@#$%^&*()_+';
+    const USERS = {
+      'Luohino': { id: 'luohino_secure_chat_' + Date.now(), avatar: 'BF' },
+      'Tanaya': { id: 'tanaya_secure_chat_' + Date.now(), avatar: 'GF' }
+    };
+    
+    // Fixed IDs for connection (these stay the same)
+    const FIXED_USER_IDS = {
+      'Luohino': 'luohino_chat_room',
+      'Tanaya': 'tanaya_chat_room'
+    };
+    
+    // Global variables
+    let currentUser = null;
+    let peer = null;
+    let connection = null;
+    let currentCall = null;
+    let localStream = null;
+    let isOnline = false;
+    let otherUser = null;
+    
+    // DOM elements
+    const loginScreen = document.getElementById('loginScreen');
+    const chatScreen = document.getElementById('chatScreen');
+    const userOptions = document.querySelectorAll('.user-option');
+    const passwordInput = document.getElementById('passwordInput');
+    const loginBtn = document.getElementById('loginBtn');
+    const passwordToggle = document.getElementById('passwordToggle');
+    const passwordBtns = document.querySelectorAll('.password-btn');
+    const userAvatar = document.getElementById('userAvatar');
+    const userName = document.getElementById('userName');
+    const statusIndicator = document.getElementById('statusIndicator');
+    const statusText = document.getElementById('statusText');
+    const messagesContainer = document.getElementById('messagesContainer');
+    const messageInput = document.getElementById('messageInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const friendIdInput = document.getElementById('friendIdInput');
+    const connectBtn = document.getElementById('connectBtn');
+    const connectSection = document.getElementById('connectSection');
+    const videoContainer = document.getElementById('videoContainer');
+    const audioControls = document.getElementById('audioControls');
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+    const remoteLabel = document.getElementById('remoteLabel');
+    const voiceActivity = document.getElementById('voiceActivity');
+    const voiceText = document.getElementById('voiceText');
+    const voiceDot = document.getElementById('voiceDot');
+    
+    // Control buttons
+    const voiceCallBtn = document.getElementById('voiceCallBtn');
+    const videoCallBtn = document.getElementById('videoCallBtn');
+    const screenShareBtn = document.getElementById('screenShareBtn');
+    const endCallBtn = document.getElementById('endCallBtn');
+    const muteBtn = document.getElementById('muteBtn');
+    const speakerBtn = document.getElementById('speakerBtn');
+    const bluetoothBtn = document.getElementById('bluetoothBtn');
+    const micBtn = document.getElementById('micBtn');
+    
+    // Encryption functions
+    function encryptMessage(message) {
+      try {
+        return CryptoJS.AES.encrypt(message, ENCRYPTION_KEY).toString();
+      } catch (e) {
+        console.error('Encryption error:', e);
+        return message;
+      }
+    }
+    
+    function decryptMessage(encryptedMessage) {
+      try {
+        const bytes = CryptoJS.AES.decrypt(encryptedMessage, ENCRYPTION_KEY);
+        return bytes.toString(CryptoJS.enc.Utf8);
+      } catch (e) {
+        console.error('Decryption error:', e);
+        return encryptedMessage;
+      }
+    }
+    
+    // User selection
+    userOptions.forEach(option => {
+      option.addEventListener('click', () => {
+        userOptions.forEach(opt => opt.classList.remove('selected'));
+        option.classList.add('selected');
+        currentUser = option.dataset.user;
+        checkLoginReady();
+      });
+    });
+    
+    // Password input
+    passwordInput.addEventListener('input', checkLoginReady);
+    passwordInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') login();
+    });
+    
+    // Password visibility toggle
+    passwordToggle.addEventListener('click', () => {
+      const isPassword = passwordInput.type === 'password';
+      passwordInput.type = isPassword ? 'text' : 'password';
+      passwordToggle.textContent = isPassword ? '🙈' : '👁';
+    });
+    
+    // Quick password buttons
+    passwordBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const password = btn.dataset.password;
+        passwordInput.value = password;
+        checkLoginReady();
+        
+        // Visual feedback
+        btn.style.boxShadow = 'inset 3px 3px 6px #bebfc5, inset -3px -3px 6px #ffffff';
+        btn.style.color = '#4a4a4a';
+        setTimeout(() => {
+          btn.style.boxShadow = '';
+          btn.style.color = '';
+        }, 150);
+      });
+    });
+    
+    function checkLoginReady() {
+      const isReady = currentUser && passwordInput.value.length > 0;
+      loginBtn.disabled = !isReady;
+    }
+    
+    // Login
+    loginBtn.addEventListener('click', login);
+    
+    function login() {
+      if (!VALID_PASSWORDS.includes(passwordInput.value)) {
+        passwordInput.style.borderColor = '#ff4757';
+        passwordInput.style.animation = 'shake 0.5s';
+        setTimeout(() => {
+          passwordInput.style.borderColor = '#e0e6ed';
+          passwordInput.style.animation = '';
+        }, 500);
+        addSystemMessage('Invalid password!');
+        return;
+      }
+      
+      // Set other user
+      otherUser = currentUser === 'Luohino' ? 'Tanaya' : 'Luohino';
+      
+      // Update UI
+      userAvatar.textContent = USERS[currentUser].avatar;
+      userName.textContent = currentUser;
+      remoteLabel.textContent = otherUser;
+      
+      // Hide login, show chat
+      loginScreen.classList.add('hidden');
+      chatScreen.classList.remove('hidden');
+      
+      // Initialize peer connection
+      initializePeer();
+    }
+    
+    // Initialize PeerJS with username as ID
+    function initializePeer() {
+      console.log('Initializing peer...');
+      addSystemMessage('Connecting...');
+      
+      // Use current username as peer ID
+      peer = new Peer(currentUser.toLowerCase(), {
+        debug: 1
+      });
+      
+      peer.on('open', (id) => {
+        console.log('Connected with username:', id);
+        addSystemMessage('Connected as ' + currentUser);
+        addSystemMessage('Type "' + otherUser + '" to connect');
+        
+        // Show simple status
+        document.getElementById('statusText').textContent = otherUser + ' is Offline';
+        
+        // Show connection input
+        showConnectionInput();
+      });
+      
+      peer.on('connection', (conn) => {
+        console.log('Incoming connection from:', conn.peer);
+        connection = conn;
+        setupConnectionHandlers();
+        onConnectionEstablished();
+      });
+      
+      peer.on('call', handleIncomingCall);
+      
+      peer.on('error', (err) => {
+        console.error('Peer error:', err);
+        updateStatus(false);
+        addSystemMessage(`Connection error: ${err.type}`);
+      });
+      
+      peer.on('disconnected', () => {
+        updateStatus(false);
+        addSystemMessage('Disconnected from network');
+      });
+    }
+    
+    // Show connection input with pre-filled name
+    function showConnectionInput() {
+      connectSection.style.display = 'block';
+      // Pre-fill the other user's name
+      friendIdInput.value = otherUser;
+      friendIdInput.focus();
+      friendIdInput.select();
+    }
+    
+    // Simple username connect function
+    function connectToFriend() {
+      let friendName = friendIdInput.value.trim();
+      
+      if (!friendName) {
+        alert('Please enter username (Luohino or Tanaya)');
+        return;
+      }
+      
+      // Auto-correct case and validate
+      if (friendName.toLowerCase() === 'luohino') {
+        friendName = 'luohino';
+      } else if (friendName.toLowerCase() === 'tanaya') {
+        friendName = 'tanaya';
+      } else {
+        alert('Please enter "Luohino" or "Tanaya"');
+        return;
+      }
+      
+      if (friendName === currentUser.toLowerCase()) {
+        alert('You cannot connect to yourself!');
+        return;
+      }
+      
+      if (connection && connection.open) {
+        addSystemMessage('Already connected!');
+        return;
+      }
+      
+      addSystemMessage('Connecting to ' + friendName + '...');
+      
+      connection = peer.connect(friendName);
+      
+      connection.on('open', () => {
+        console.log('Connected to ' + friendName + '!');
+        setupConnectionHandlers();
+        onConnectionEstablished();
+      });
+      
+      connection.on('error', (err) => {
+        console.log('Connection failed:', err);
+        addSystemMessage('Connection failed. Is ' + friendName + ' online?');
+        connection = null;
+      });
+    }
+    
+    // Called when connection is established
+    function onConnectionEstablished() {
+      updateStatus(true);
+      addSystemMessage(otherUser + ' is now connected!');
+      connectSection.style.display = 'none';
+      document.getElementById('statusText').textContent = otherUser + ' is Online';
+    }
+    
+    // Voice Activity Detection
+    let localAudioContext = null;
+    let remoteAudioContext = null;
+    let localAnalyser = null;
+    let remoteAnalyser = null;
+    let voiceDetectionInterval = null;
+    
+    function setupVoiceDetection(localStream, remoteStream) {
+      try {
+        // Setup local audio analysis
+        if (localStream && localStream.getAudioTracks().length > 0) {
+          localAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+          const localSource = localAudioContext.createMediaStreamSource(localStream);
+          localAnalyser = localAudioContext.createAnalyser();
+          localAnalyser.fftSize = 256;
+          localSource.connect(localAnalyser);
+        }
+        
+        // Setup remote audio analysis
+        if (remoteStream && remoteStream.getAudioTracks().length > 0) {
+          remoteAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+          const remoteSource = remoteAudioContext.createMediaStreamSource(remoteStream);
+          remoteAnalyser = remoteAudioContext.createAnalyser();
+          remoteAnalyser.fftSize = 256;
+          remoteSource.connect(remoteAnalyser);
+        }
+        
+        // Show voice activity indicator
+        voiceActivity.classList.remove('hidden');
+        
+        // Start voice detection loop
+        startVoiceDetection();
+        
+      } catch (error) {
+        console.log('Voice detection setup failed:', error);
+      }
+    }
+    
+    function startVoiceDetection() {
+      if (voiceDetectionInterval) clearInterval(voiceDetectionInterval);
+      
+      voiceDetectionInterval = setInterval(() => {
+        const localSpeaking = isAudioActive(localAnalyser);
+        const remoteSpeaking = isAudioActive(remoteAnalyser);
+        
+        updateVoiceActivity(localSpeaking, remoteSpeaking);
+      }, 100); // Check every 100ms
+    }
+    
+    function isAudioActive(analyser) {
+      if (!analyser) return false;
+      
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(dataArray);
+      
+      // Calculate average volume
+      const sum = dataArray.reduce((a, b) => a + b, 0);
+      const average = sum / dataArray.length;
+      
+      // Consider it "speaking" if average volume is above threshold
+      return average > 15; // Adjust this threshold as needed
+    }
+    
+    function updateVoiceActivity(localSpeaking, remoteSpeaking) {
+      const indicator = voiceActivity;
+      
+      // Remove all speaking classes
+      indicator.classList.remove('speaking-self', 'speaking-peer', 'speaking-none');
+      
+      if (localSpeaking && remoteSpeaking) {
+        // Both speaking
+        indicator.classList.add('speaking-self');
+        voiceText.textContent = 'Both speaking';
+      } else if (localSpeaking) {
+        // Current user speaking
+        indicator.classList.add('speaking-self');
+        voiceText.textContent = currentUser + ' is speaking';
+      } else if (remoteSpeaking) {
+        // Other user speaking
+        indicator.classList.add('speaking-peer');
+        voiceText.textContent = otherUser + ' is speaking';
+      } else {
+        // No one speaking
+        indicator.classList.add('speaking-none');
+        voiceText.textContent = 'No one speaking';
+      }
+    }
+    
+    function stopVoiceDetection() {
+      if (voiceDetectionInterval) {
+        clearInterval(voiceDetectionInterval);
+        voiceDetectionInterval = null;
+      }
+      
+      if (localAudioContext) {
+        localAudioContext.close();
+        localAudioContext = null;
+      }
+      
+      if (remoteAudioContext) {
+        remoteAudioContext.close();
+        remoteAudioContext = null;
+      }
+      
+      localAnalyser = null;
+      remoteAnalyser = null;
+      
+      // Hide voice activity indicator
+      voiceActivity.classList.add('hidden');
+    }
+    
+    function setupConnectionHandlers() {
+      connection.on('data', (data) => {
+        const decryptedMessage = decryptMessage(data);
+        addMessage(decryptedMessage, false);
+      });
+      
+      connection.on('close', () => {
+        console.log('Connection closed');
+        updateStatus(false);
+        addSystemMessage(`🔴 ${otherUser} disconnected`);
+        connection = null;
+      });
+    }
+    
+    function updateStatus(online) {
+      isOnline = online;
+      if (online) {
+        statusIndicator.className = 'status-indicator status-online';
+        statusText.textContent = `${otherUser} is Online`;
+        enableCallButtons();
+      } else {
+        statusIndicator.className = 'status-indicator status-offline';
+        statusText.textContent = `${otherUser} is Offline`;
+        disableCallButtons();
+      }
+    }
+    
+    function enableCallButtons() {
+      voiceCallBtn.disabled = false;
+      videoCallBtn.disabled = false;
+      screenShareBtn.disabled = false;
+    }
+    
+    function disableCallButtons() {
+      voiceCallBtn.disabled = true;
+      videoCallBtn.disabled = true;
+      screenShareBtn.disabled = true;
+    }
+    
+    // Message handling
+    function addMessage(text, isSent) {
+      const messageDiv = document.createElement('div');
+      messageDiv.className = `message ${isSent ? 'sent' : 'received'}`;
+      messageDiv.textContent = text;
+      messagesContainer.appendChild(messageDiv);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+    
+    function addSystemMessage(text) {
+      const messageDiv = document.createElement('div');
+      messageDiv.className = 'message system';
+      messageDiv.textContent = text;
+      messagesContainer.appendChild(messageDiv);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+    
+    function sendMessage() {
+      const message = messageInput.value.trim();
+      if (!message) return;
+      
+      if (connection && connection.open) {
+        const encryptedMessage = encryptMessage(message);
+        connection.send(encryptedMessage);
+        addMessage(message, true);
+        messageInput.value = '';
+      } else {
+        addSystemMessage('Not connected to send messages');
+      }
+    }
+    
+    // Connect button events
+    connectBtn.addEventListener('click', connectToFriend);
+    friendIdInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') connectToFriend();
+    });
+    
+    sendBtn.addEventListener('click', sendMessage);
+    messageInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') sendMessage();
+    });
+    
+    // Call handling - allow switching during active calls
+    voiceCallBtn.addEventListener('click', () => startCall(true, false));
+    videoCallBtn.addEventListener('click', () => startCall(true, true));
+    screenShareBtn.addEventListener('click', startScreenShare);
+    endCallBtn.addEventListener('click', endCall);
+    
+    // Update button text when call is active
+    function updateCallButtonsForActiveCall() {
+      if (currentCall && currentCall.open) {
+        voiceCallBtn.textContent = 'Switch to Voice';
+        videoCallBtn.textContent = 'Switch to Video';
+        screenShareBtn.textContent = 'Switch to Screen';
+      } else {
+        voiceCallBtn.textContent = 'Voice Call';
+        videoCallBtn.textContent = 'Video Call';
+        screenShareBtn.textContent = 'Screen Share';
+      }
+    }
+    
+    function startCall(audio, video) {
+      if (!isOnline) {
+        addSystemMessage('Cannot call - user is offline');
+        return;
+      }
+      
+      console.log('Starting call - audio:', audio, 'video:', video);
+      
+      // If already on a call, switch the media type
+      if (currentCall && currentCall.open) {
+        console.log('Switching call type during active call');
+        addSystemMessage('Switching to ' + (video ? 'video' : 'voice') + ' call...');
+      }
+      
+      navigator.mediaDevices.getUserMedia({ audio, video })
+        .then((stream) => {
+          console.log('Got local stream:', stream);
+          localStream = stream;
+          
+          // Only show video for video calls
+          if (video) {
+            localVideo.srcObject = stream;
+            videoContainer.classList.remove('hidden');
+            addSystemMessage('Starting video call...');
+          } else {
+            // Hide video container for voice-only calls
+            videoContainer.classList.add('hidden');
+            addSystemMessage('Starting voice call...');
+          }
+          
+          audioControls.classList.remove('hidden');
+          
+          if (!connection || !connection.peer) {
+            addSystemMessage('No connection available for call');
+            return;
+          }
+          
+          const call = peer.call(connection.peer, stream);
+          currentCall = call;
+          
+          call.on('stream', (remoteStream) => {
+            console.log('Received remote stream:', remoteStream);
+            
+            // Always use remoteVideo element for audio/video
+            remoteVideo.srcObject = remoteStream;
+            
+            // Force play the stream
+            remoteVideo.play().then(() => {
+              console.log('Remote stream playing successfully');
+            }).catch(e => {
+              console.log('Stream play error:', e);
+              // Try to play again
+              setTimeout(() => remoteVideo.play(), 1000);
+            });
+            
+            // Ensure audio is enabled
+            remoteVideo.muted = false;
+            remoteVideo.volume = 1.0;
+            
+            if (video) {
+              addSystemMessage('Video call connected');
+            } else {
+              addSystemMessage('Voice call connected');
+            }
+            
+            // Setup voice activity detection with both streams
+            setupVoiceDetection(localStream, remoteStream);
+            
+            // Update button text for switching
+            updateCallButtonsForActiveCall();
+          });
+          
+          call.on('close', () => {
+            addSystemMessage('Call ended');
+            endCall();
+          });
+          
+          call.on('error', (err) => {
+            console.error('Call error:', err);
+            addSystemMessage('Call failed: ' + err);
+            endCall();
+          });
+          
+          endCallBtn.disabled = false;
+          // Keep call buttons enabled so user can switch call types
+          // disableCallButtons();
+        })
+        .catch((err) => {
+          console.error('Failed to get media:', err);
+          addSystemMessage('Failed to access microphone/camera: ' + err.message);
+        });
+    }
+    
+    function startScreenShare() {
+      if (!isOnline) {
+        addSystemMessage('Cannot share screen - user is offline');
+        return;
+      }
+      
+      console.log('Starting screen share...');
+      
+      // If already on a call, we need to close it and start a new one with screen share
+      if (currentCall && currentCall.open) {
+        console.log('Ending current call to start screen share');
+        currentCall.close();
+        addSystemMessage('Switching to screen share...');
+      }
+      
+      navigator.mediaDevices.getDisplayMedia({ 
+        video: {
+          mediaSource: 'screen'
+        }, 
+        audio: true 
+      })
+        .then((stream) => {
+          console.log('Got screen share stream:', stream);
+          
+          // Stop any existing local stream
+          if (localStream) {
+            localStream.getTracks().forEach(track => track.stop());
+          }
+          
+          localStream = stream;
+          localVideo.srcObject = stream;
+          videoContainer.classList.remove('hidden');
+          audioControls.classList.remove('hidden');
+          
+          // Make new call with screen share stream
+          console.log('Calling with screen share stream');
+          const call = peer.call(connection.peer, stream);
+          currentCall = call;
+          
+          call.on('stream', (remoteStream) => {
+            console.log('Screen share - received remote stream:', remoteStream);
+            console.log('Remote stream tracks:', remoteStream.getTracks());
+            
+            // Force show video container for screen share response
+            videoContainer.classList.remove('hidden');
+            
+            // Set up remote video for screen share response
+            remoteVideo.srcObject = remoteStream;
+            remoteVideo.play().then(() => {
+              console.log('Screen share response playing');
+              addSystemMessage('Receiving screen share from ' + otherUser);
+            }).catch(e => {
+              console.log('Screen share response play error:', e);
+              setTimeout(() => remoteVideo.play(), 1000);
+            });
+            
+            remoteVideo.muted = false;
+            remoteVideo.volume = 1.0;
+            
+            // Setup voice activity detection for screen sharing
+            setupVoiceDetection(localStream, remoteStream);
+          });
+          
+          call.on('close', () => {
+            console.log('Screen share call closed');
+            addSystemMessage('Screen sharing ended');
+            endCall();
+          });
+          
+          call.on('error', (err) => {
+            console.error('Screen share call error:', err);
+            addSystemMessage('Screen share failed: ' + err);
+            endCall();
+          });
+          
+          // Handle when user stops sharing from browser UI
+          stream.getVideoTracks()[0].addEventListener('ended', () => {
+            console.log('Screen sharing stopped by user');
+            addSystemMessage('Screen sharing stopped');
+            endCall();
+          });
+          
+          addSystemMessage('Screen sharing started');
+          endCallBtn.disabled = false;
+          updateCallButtonsForActiveCall();
+        })
+        .catch((err) => {
+          console.error('Failed to get screen:', err);
+          addSystemMessage('Failed to access screen: ' + err.message);
+        });
+    }
+    
+    function handleIncomingCall(call) {
+      console.log('Incoming call from:', call.peer);
+      
+      if (confirm(`📞 Incoming call from ${otherUser}. Accept?`)) {
+        // Answer with audio and video
+        navigator.mediaDevices.getUserMedia({ audio: true, video: true })
+          .then((stream) => {
+            console.log('Answering call with stream');
+            localStream = stream;
+            call.answer(stream);
+            currentCall = call;
+            
+            call.on('stream', (remoteStream) => {
+              console.log('Incoming call - received remote stream:', remoteStream);
+              
+              // Check if remote stream has video tracks
+              const videoTracks = remoteStream.getVideoTracks();
+              const hasVideo = videoTracks.length > 0 && videoTracks[0].enabled;
+              
+              // Check if it's screen sharing by looking at the track label
+              const isScreenShare = videoTracks.length > 0 && 
+                (videoTracks[0].label.includes('screen') || 
+                 videoTracks[0].label.includes('Screen') ||
+                 videoTracks[0].getSettings().displaySurface === 'monitor');
+              
+              console.log('Remote stream has video:', hasVideo, 'isScreenShare:', isScreenShare);
+              
+              if (hasVideo) {
+                // Show video container for both video calls and screen sharing
+                localVideo.srcObject = stream;
+                remoteVideo.srcObject = remoteStream;
+                videoContainer.classList.remove('hidden');
+                
+                if (isScreenShare) {
+                  addSystemMessage('Screen sharing received');
+                } else {
+                  addSystemMessage('Video call answered');
+                }
+              } else {
+                // Voice only call - hide video container
+                videoContainer.classList.add('hidden');
+                remoteVideo.srcObject = remoteStream;
+                addSystemMessage('Voice call answered');
+              }
+              
+              // Force play and enable audio
+              remoteVideo.play().then(() => {
+                console.log('Incoming call audio playing');
+              }).catch(e => {
+                console.log('Incoming call play error:', e);
+                setTimeout(() => remoteVideo.play(), 1000);
+              });
+              
+              remoteVideo.muted = false;
+              remoteVideo.volume = 1.0;
+              
+              // Setup voice activity detection for incoming call
+              setupVoiceDetection(stream, remoteStream);
+              
+              audioControls.classList.remove('hidden');
+            });
+            
+            call.on('close', () => {
+              addSystemMessage('Call ended');
+              endCall();
+            });
+            
+            call.on('error', (err) => {
+              console.error('Incoming call error:', err);
+              addSystemMessage('Call error: ' + err);
+              endCall();
+            });
+            
+            endCallBtn.disabled = false;
+            // Keep call buttons enabled for switching
+            // disableCallButtons();
+          })
+          .catch((err) => {
+            console.error('Failed to answer call:', err);
+            // Try to answer without video if camera fails
+            navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+              .then((audioStream) => {
+                call.answer(audioStream);
+                currentCall = call;
+                addSystemMessage('Call answered (audio only)');
+              })
+              .catch(() => {
+                call.answer();
+                currentCall = call;
+                addSystemMessage('Call answered (no media)');
+              });
+            
+            audioControls.classList.remove('hidden');
+            endCallBtn.disabled = false;
+            // Keep call buttons enabled for switching
+            // disableCallButtons();
+          });
+      } else {
+        // Call rejected
+        call.close();
+      }
+    }
+    
+    function endCall() {
+      if (currentCall) {
+        currentCall.close();
+        currentCall = null;
+      }
+      
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        localStream = null;
+      }
+      
+      localVideo.srcObject = null;
+      remoteVideo.srcObject = null;
+      videoContainer.classList.add('hidden');
+      audioControls.classList.add('hidden');
+      
+      // Stop voice detection
+      stopVoiceDetection();
+      
+      endCallBtn.disabled = true;
+      enableCallButtons();
+      
+      // Reset button text
+      updateCallButtonsForActiveCall();
+    }
+    
+    // Audio controls
+    muteBtn.addEventListener('click', () => {
+      if (localStream) {
+        const audioTrack = localStream.getAudioTracks()[0];
+        if (audioTrack) {
+          audioTrack.enabled = !audioTrack.enabled;
+          muteBtn.classList.toggle('active');
+          muteBtn.textContent = audioTrack.enabled ? 'Mute' : 'Unmute';
+        }
+      }
+    });
+    
+    speakerBtn.addEventListener('click', () => {
+      speakerBtn.classList.toggle('active');
+      addSystemMessage(speakerBtn.classList.contains('active') ? 'Speaker ON' : 'Speaker OFF');
+    });
+    
+    bluetoothBtn.addEventListener('click', () => {
+      bluetoothBtn.classList.toggle('active');
+      addSystemMessage(bluetoothBtn.classList.contains('active') ? 'Bluetooth ON' : 'Bluetooth OFF');
+    });
+    
+    micBtn.addEventListener('click', () => {
+      if (localStream) {
+        const audioTrack = localStream.getAudioTracks()[0];
+        if (audioTrack) {
+          audioTrack.enabled = !audioTrack.enabled;
+          micBtn.classList.toggle('active');
+          micBtn.textContent = audioTrack.enabled ? 'Microphone' : 'Mic OFF';
+        }
+      }
+    });
+    
+    // Online/Offline detection
+    window.addEventListener('online', () => {
+      addSystemMessage('Internet connected');
+      if (peer && peer.disconnected) {
+        peer.reconnect();
+      }
+    });
+    
+    window.addEventListener('offline', () => {
+      addSystemMessage('Internet disconnected');
+      updateStatus(false);
+    });
+    
+    // Note: Retry logic is now handled in initializePeer function
+    
+    // Add shake animation
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes shake {
+        0%, 100% { transform: translateX(0); }
+        25% { transform: translateX(-5px); }
+        75% { transform: translateX(5px); }
+      }
+    `;
+    document.head.appendChild(style);
+  </script>
+</body>
+</html>
