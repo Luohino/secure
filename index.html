@@ -879,15 +879,13 @@
       console.log('Initializing peer...');
       addSystemMessage('Connecting...');
       
-      // Generate session-based peer ID to avoid conflicts
-      const sessionId = Math.random().toString(36).substr(2, 6);
-      const uniquePeerId = currentUser.toLowerCase() + '-' + sessionId;
+      // Use simple peer ID - just the username
+      const simplePeerId = currentUser.toLowerCase();
       
-      console.log('Creating peer with ID:', uniquePeerId);
-      addSystemMessage('Initializing with session ID: ' + sessionId);
+      console.log('Creating peer with ID:', simplePeerId);
       
-      // Use unique peer ID with enhanced config for production
-      peer = new Peer(uniquePeerId, {
+      // Use simple peer ID with enhanced config
+      peer = new Peer(simplePeerId, {
         debug: 1,
         config: {
           iceServers: [
@@ -907,22 +905,13 @@
           userAgent: navigator.userAgent.substr(0, 100)
         });
         
-        addSystemMessage('Connected as ' + currentUser + ' (Session: ' + id.split('-')[1] + ')');
+        addSystemMessage('Connected as ' + currentUser + ' (ID: ' + id + ')');
         if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
           addSystemMessage('⚠️ Using HTTP - some features may not work. Use HTTPS for full functionality.');
         }
-        addSystemMessage('Share this ID with ' + otherUser + ': ' + id);
         
-        // Try to copy to clipboard
-        if (navigator.clipboard) {
-          navigator.clipboard.writeText(id).then(() => {
-            addSystemMessage('✓ Your peer ID copied to clipboard!');
-          }).catch(() => {
-            addSystemMessage('Tap to copy your ID: ' + id);
-          });
-        } else {
-          addSystemMessage('Your peer ID: ' + id);
-        }
+        addSystemMessage('Ready to connect with ' + otherUser);
+        addSystemMessage('Type "' + otherUser.toLowerCase() + '" to connect');
         
         // Show simple status
         document.getElementById('statusText').textContent = otherUser + ' is Offline';
@@ -968,29 +957,37 @@
       });
     }
     
-    // Show connection input for peer ID entry
+    // Show connection input with auto-fill for simple usernames
     function showConnectionInput() {
       connectSection.style.display = 'block';
-      // Clear input for manual ID entry
-      friendIdInput.value = '';
-      friendIdInput.placeholder = 'Enter ' + otherUser + '\'s peer ID';
+      
+      // Auto-fill with the other user's simple username
+      friendIdInput.value = otherUser.toLowerCase();
+      friendIdInput.placeholder = 'Connect to ' + otherUser;
       friendIdInput.focus();
+      friendIdInput.select();
     }
     
-    // Connect to peer using their unique ID
+    // Connect to friend using simple username
     function connectToFriend() {
-      const peerId = friendIdInput.value.trim();
+      let friendName = friendIdInput.value.trim().toLowerCase();
       
-      if (!peerId) {
-        addSystemMessage('Please enter the peer ID');
+      if (!friendName) {
+        addSystemMessage('Please enter username');
+        return;
+      }
+      
+      // Auto-correct to valid usernames
+      if (friendName === 'luohino' || friendName === 'tanaya') {
+        // Valid username
+      } else {
+        addSystemMessage('Please enter "luohino" or "tanaya"');
         return;
       }
       
       // Prevent self-connection
-      if (peerId === peer.id) {
-        addSystemMessage('Error: Cannot connect to yourself. Please enter ' + otherUser + '\'s peer ID.');
-        friendIdInput.focus();
-        friendIdInput.select();
+      if (friendName === currentUser.toLowerCase()) {
+        addSystemMessage('Cannot connect to yourself!');
         return;
       }
       
@@ -999,12 +996,12 @@
         return;
       }
       
-      addSystemMessage('Connecting to peer ID: ' + peerId + '...');
+      addSystemMessage('Connecting to ' + friendName + '...');
       
-      connection = peer.connect(peerId);
+      connection = peer.connect(friendName);
       
       connection.on('open', () => {
-        console.log('Connected to peer:', peerId);
+        console.log('Connected to:', friendName);
         setupConnectionHandlers();
         onConnectionEstablished();
       });
@@ -1012,10 +1009,10 @@
       connection.on('error', (err) => {
         console.log('Connection failed:', err);
         if (err.type === 'unavailable-id') {
-          addSystemMessage('Connection failed: Peer ID ' + peerId + ' is not online or does not exist.');
-          addSystemMessage('Ask ' + otherUser + ' to share their current peer ID.');
+          addSystemMessage('Connection failed: ' + friendName + ' is not online.');
+          addSystemMessage('Make sure ' + otherUser + ' is logged in and connected.');
         } else {
-          addSystemMessage('Connection failed: ' + err.type + '. Check the peer ID.');
+          addSystemMessage('Connection failed: ' + err.type);
         }
         connection = null;
         // Show connection input again
@@ -1057,35 +1054,79 @@
       }
     }
     
-    // Mobile audio session management
+    // Enhanced mobile audio session management for microphone persistence
     function setupMobileAudioSession() {
+      console.log('Setting up mobile audio session for microphone persistence');
+      
       // Request audio focus and prevent audio interruption
       if ('mediaSession' in navigator) {
         navigator.mediaSession.metadata = new MediaMetadata({
-          title: 'Secure Chat Call',
-          artist: 'Voice/Video Call Active',
+          title: 'Secure Chat Call - Microphone Active',
+          artist: 'Voice/Video Call in Progress',
           artwork: []
         });
         
+        // Set playback state to playing to maintain audio focus
+        navigator.mediaSession.playbackState = 'playing';
+        
         navigator.mediaSession.setActionHandler('pause', () => {
-          console.log('Media session pause requested - ignoring');
-          // Don't actually pause the call
+          console.log('Media session pause requested - maintaining call');
+          // Don't pause the call, maintain microphone
+          navigator.mediaSession.playbackState = 'playing';
         });
         
         navigator.mediaSession.setActionHandler('play', () => {
           console.log('Media session play requested');
+          navigator.mediaSession.playbackState = 'playing';
           if (remoteVideo && remoteVideo.paused) {
             remoteVideo.play();
           }
+          // Ensure microphone is still active
+          if (localStream) {
+            const audioTracks = localStream.getAudioTracks();
+            audioTracks.forEach(track => {
+              if (!track.enabled) {
+                track.enabled = true;
+                console.log('Re-enabled microphone track');
+                addSystemMessage('🎤 Microphone reactivated');
+              }
+            });
+          }
+        });
+        
+        navigator.mediaSession.setActionHandler('stop', () => {
+          console.log('Media session stop requested - ending call');
+          endCall();
         });
       }
       
-      // Mobile-specific audio context handling
-      if (localAudioContext && localAudioContext.state === 'suspended') {
-        localAudioContext.resume();
+      // Enhanced audio context handling
+      if (localAudioContext) {
+        if (localAudioContext.state === 'suspended') {
+          localAudioContext.resume().then(() => {
+            console.log('Local audio context resumed');
+          });
+        }
       }
-      if (remoteAudioContext && remoteAudioContext.state === 'suspended') {
-        remoteAudioContext.resume();
+      if (remoteAudioContext) {
+        if (remoteAudioContext.state === 'suspended') {
+          remoteAudioContext.resume().then(() => {
+            console.log('Remote audio context resumed');
+          });
+        }
+      }
+      
+      // Keep microphone active with periodic checks
+      if (localStream) {
+        const audioTracks = localStream.getAudioTracks();
+        audioTracks.forEach(track => {
+          // Ensure track constraints prevent automatic suspension
+          track.applyConstraints({
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }).catch(e => console.log('Constraint application failed:', e));
+        });
       }
     }
     
@@ -1776,12 +1817,34 @@
     let isInBackground = false;
     let callHealthTimer = null;
     
-    // Call health monitoring
+    // Enhanced call health monitoring with microphone maintenance
     function startCallHealthCheck() {
       if (callHealthTimer) clearInterval(callHealthTimer);
       
       callHealthTimer = setInterval(() => {
         if (currentCall && currentCall.open) {
+          console.log('Call health check - maintaining audio/microphone');
+          
+          // Critical: Ensure microphone stays enabled
+          if (localStream) {
+            const audioTracks = localStream.getAudioTracks();
+            audioTracks.forEach(track => {
+              if (!track.enabled) {
+                track.enabled = true;
+                console.log('CRITICAL: Re-enabled disabled microphone!');
+                addSystemMessage('⚠️ Microphone was disabled - reactivated!');
+              }
+              
+              // Check if track is still active
+              if (track.readyState === 'ended') {
+                console.log('CRITICAL: Audio track ended - call may be affected');
+                addSystemMessage('⚠️ Microphone track ended - please check permissions');
+              } else {
+                console.log('Microphone track healthy:', track.readyState);
+              }
+            });
+          }
+          
           // Ensure audio continues playing
           if (remoteVideo && remoteVideo.paused) {
             console.log('Detected paused audio, restarting...');
@@ -1790,10 +1853,17 @@
           
           // Resume audio contexts if suspended
           if (localAudioContext && localAudioContext.state === 'suspended') {
+            console.log('Resuming suspended local audio context');
             localAudioContext.resume();
           }
           if (remoteAudioContext && remoteAudioContext.state === 'suspended') {
+            console.log('Resuming suspended remote audio context');
             remoteAudioContext.resume();
+          }
+          
+          // Maintain media session state
+          if ('mediaSession' in navigator) {
+            navigator.mediaSession.playbackState = 'playing';
           }
           
           // Check connection quality
@@ -1805,6 +1875,12 @@
                     console.log('High packet loss detected:', report.packetsLost);
                   }
                 }
+                if (report.type === 'outbound-rtp' && report.kind === 'audio') {
+                  // Check if we're sending audio
+                  if (report.packetsSent === 0) {
+                    console.log('WARNING: Not sending audio packets!');
+                  }
+                }
               });
             }).catch(e => console.log('Stats error:', e));
           }
@@ -1813,7 +1889,7 @@
           clearInterval(callHealthTimer);
           callHealthTimer = null;
         }
-      }, 3000); // Check every 3 seconds
+      }, 2000); // Check every 2 seconds for more responsive maintenance
     }
     
     function stopCallHealthCheck() {
@@ -1829,21 +1905,47 @@
         isInBackground = true;
         
         if (currentCall && currentCall.open) {
-          addSystemMessage('📱 App in background - maintaining call...');
+          addSystemMessage('📱 App in background - maintaining call and microphone...');
           
-          // Keep connection alive with periodic checks
+          // Aggressive background maintenance for microphone
           backgroundTimer = setInterval(() => {
             if (currentCall && currentCall.open) {
-              console.log('Background: Call still active');
+              console.log('Background: Maintaining call and microphone');
+              
+              // CRITICAL: Keep microphone active in background
+              if (localStream) {
+                const audioTracks = localStream.getAudioTracks();
+                audioTracks.forEach(track => {
+                  if (!track.enabled) {
+                    track.enabled = true;
+                    console.log('Background: Re-enabled microphone!');
+                  }
+                });
+              }
+              
               // Ensure audio continues playing
               if (remoteVideo.paused) {
                 remoteVideo.play().catch(e => console.log('Background play error:', e));
               }
+              
+              // Keep media session active
+              if ('mediaSession' in navigator) {
+                navigator.mediaSession.playbackState = 'playing';
+              }
+              
+              // Resume audio contexts
+              if (localAudioContext && localAudioContext.state === 'suspended') {
+                localAudioContext.resume();
+              }
+              if (remoteAudioContext && remoteAudioContext.state === 'suspended') {
+                remoteAudioContext.resume();
+              }
+              
             } else {
               console.log('Call lost in background');
               clearInterval(backgroundTimer);
             }
-          }, 5000); // Check every 5 seconds
+          }, 3000); // Check every 3 seconds in background
         }
       } else {
         console.log('App came to foreground');
