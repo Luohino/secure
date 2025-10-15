@@ -920,7 +920,7 @@
     // Show connection input with pre-filled name
     function showConnectionInput() {
       connectSection.style.display = 'block';
-      // Pre-fill the other user's name
+      // Pre-fill the other user's name (not current user) with proper case
       friendIdInput.value = otherUser;
       friendIdInput.focus();
       friendIdInput.select();
@@ -941,12 +941,17 @@
       } else if (friendName.toLowerCase() === 'tanaya') {
         friendName = 'tanaya';
       } else {
-        alert('Please enter "Luohino" or "Tanaya"');
+        addSystemMessage('Error: Please enter "Luohino" or "Tanaya"');
+        friendIdInput.focus();
+        friendIdInput.select();
         return;
       }
       
+      // Prevent self-connection with better error messaging
       if (friendName === currentUser.toLowerCase()) {
-        alert('You cannot connect to yourself!');
+        addSystemMessage('Error: Cannot connect to yourself. Please enter the other user\'s name.');
+        friendIdInput.focus();
+        friendIdInput.select();
         return;
       }
       
@@ -967,8 +972,14 @@
       
       connection.on('error', (err) => {
         console.log('Connection failed:', err);
-        addSystemMessage('Connection failed. Is ' + friendName + ' online?');
+        if (err.type === 'unavailable-id') {
+          addSystemMessage('Connection failed: ' + friendName + ' is not online or does not exist.');
+        } else {
+          addSystemMessage('Connection failed: ' + err.type + '. Is ' + friendName + ' online?');
+        }
         connection = null;
+        // Show connection input again
+        connectSection.style.display = 'block';
       });
     }
     
