@@ -598,9 +598,6 @@
   </style>
 </head>
 <body>
-  <!-- Silent audio element for background microphone persistence -->
-  <audio id="silentAudio" loop src="data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhIAAAAAEA" hidden></audio>
-
   <!-- Login Screen -->
   <div id="loginScreen" class="container">
     <h1>Luohino Chat</h1>
@@ -716,7 +713,6 @@
   </div>
 
   <script>
-    const silentAudio = document.getElementById('silentAudio');
     // Configuration
     const VALID_PASSWORDS = [
       'a1n2i3k4e5t6',      // Default
@@ -744,7 +740,6 @@
     let localStream = null;
     let isOnline = false;
     let otherUser = null;
-    let lastCallType = { audio: false, video: false };
 
     // DOM elements
     const loginScreen = document.getElementById('loginScreen');
@@ -880,18 +875,6 @@
     }
 
     // Initialize PeerJS with username as ID
-    function checkPermissions() {
-      navigator.permissions.query({ name: 'microphone' }).then(function(result) {
-        if (result.state == 'granted') {
-          addSystemMessage('Microphone permission granted.');
-        } else if (result.state == 'prompt') {
-          addSystemMessage('Please allow microphone access when prompted.');
-        } else if (result.state == 'denied') {
-          addSystemMessage('Microphone permission denied. Please enable it in your browser settings.');
-        }
-      });
-    }
-
     function initializePeer() {
       console.log('Initializing peer...');
       addSystemMessage('Connecting...');
@@ -935,7 +918,6 @@
 
         // Show connection input
         showConnectionInput();
-        checkPermissions();
       });
 
       peer.on('connection', (conn) => {
@@ -1360,24 +1342,13 @@
       }
     }
 
-    function manageSilentAudio(play) {
-      if (play) {
-        silentAudio.play().catch(e => console.log('Silent audio play failed:', e));
-      } else {
-        silentAudio.pause();
-      }
-    }
-
     function startCall(audio, video) {
       if (!isOnline) {
         addSystemMessage('Cannot call - user is offline');
         return;
       }
 
-      manageSilentAudio(true);
-
       console.log('Starting call - audio:', audio, 'video:', video);
-      lastCallType = { audio, video };
 
       // If already on a call, switch the media type
       if (currentCall && currentCall.open) {
@@ -1777,7 +1748,6 @@
     }
 
     function endCall() {
-      manageSilentAudio(false);
       if (currentCall) {
         currentCall.close();
         currentCall = null;
@@ -1898,12 +1868,6 @@
 
           // Check connection quality
           if (currentCall.peerConnection) {
-            if (currentCall.peerConnection.connectionState === 'disconnected' || currentCall.peerConnection.connectionState === 'failed') {
-              console.log('Call disconnected, attempting to reconnect...');
-              addSystemMessage('Call disconnected, attempting to reconnect...');
-              endCall();
-              startCall(lastCallType.audio, lastCallType.video);
-            }
             currentCall.peerConnection.getStats().then(stats => {
               stats.forEach(report => {
                 if (report.type === 'inbound-rtp' && report.kind === 'audio') {
@@ -1937,14 +1901,68 @@
 
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
+        console.log('App went to background');
+        isInBackground = true;
+
         if (currentCall && currentCall.open) {
-          manageSilentAudio(true);
+          addSystemMessage('📱 App in background - maintaining call and microphone...');
+
+          // Aggressive background maintenance for microphone
+          backgroundTimer = setInterval(() => {
+            if (currentCall && currentCall.open) {
+              console.log('Background: Maintaining call and microphone');
+
+              // CRITICAL: Keep microphone active in background
+              if (localStream) {
+                const audioTracks = localStream.getAudioTracks();
+                audioTracks.forEach(track => {
+                  if (!track.enabled) {
+                    track.enabled = true;
+                    console.log('Background: Re-enabled microphone!');
+                  }
+                });
+              }
+
+              // Ensure audio continues playing
+              if (remoteVideo.paused) {
+                remoteVideo.play().catch(e => console.log('Background play error:', e));
+              }
+
+              // Keep media session active
+              if ('mediaSession' in navigator) {
+                navigator.mediaSession.playbackState = 'playing';
+              }
+
+              // Resume audio contexts
+              if (localAudioContext && localAudioContext.state === 'suspended') {
+                localAudioContext.resume();
+              }
+              if (remoteAudioContext && remoteAudioContext.state === 'suspended') {
+                remoteAudioContext.resume();
+              }
+
+            } else {
+              console.log('Call lost in background');
+              clearInterval(backgroundTimer);
+            }
+          }, 3000); // Check every 3 seconds in background
         }
       } else {
-        if (currentCall && !currentCall.open) {
-            addSystemMessage('Call may have been dropped while in the background.');
+        console.log('App came to foreground');
+        isInBackground = false;
+
+        if (backgroundTimer) {
+          clearInterval(backgroundTimer);
+          backgroundTimer = null;
         }
-        manageSilentAudio(false);
+
+        if (currentCall && currentCall.open) {
+          addSystemMessage('✅ App active - call maintained!');
+          // Ensure video/audio is playing
+          if (remoteVideo.srcObject) {
+            remoteVideo.play().catch(e => console.log('Foreground play error:', e));
+          }
+        }
       }
     });
 
