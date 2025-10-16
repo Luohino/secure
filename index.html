@@ -744,6 +744,7 @@
     let localStream = null;
     let isOnline = false;
     let otherUser = null;
+    let lastCallType = { audio: false, video: false };
 
     // DOM elements
     const loginScreen = document.getElementById('loginScreen');
@@ -1376,6 +1377,7 @@
       manageSilentAudio(true);
 
       console.log('Starting call - audio:', audio, 'video:', video);
+      lastCallType = { audio, video };
 
       // If already on a call, switch the media type
       if (currentCall && currentCall.open) {
@@ -1896,6 +1898,12 @@
 
           // Check connection quality
           if (currentCall.peerConnection) {
+            if (currentCall.peerConnection.connectionState === 'disconnected' || currentCall.peerConnection.connectionState === 'failed') {
+              console.log('Call disconnected, attempting to reconnect...');
+              addSystemMessage('Call disconnected, attempting to reconnect...');
+              endCall();
+              startCall(lastCallType.audio, lastCallType.video);
+            }
             currentCall.peerConnection.getStats().then(stats => {
               stats.forEach(report => {
                 if (report.type === 'inbound-rtp' && report.kind === 'audio') {
@@ -1933,9 +1941,10 @@
           manageSilentAudio(true);
         }
       } else {
-        if (currentCall && currentCall.open) {
-          manageSilentAudio(true);
+        if (currentCall && !currentCall.open) {
+            addSystemMessage('Call may have been dropped while in the background.');
         }
+        manageSilentAudio(false);
       }
     });
 
