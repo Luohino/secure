@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Luohino Chat</title>
   
-  <!-- Library scripts (CDN, cached by service worker) -->
-  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/crypto-js@4.2.0/crypto-js.min.js"></script>
+  <!-- Local libraries for better security -->
+  <script src="./peerjs.min.js"></script>
+  <script src="./crypto-js.min.js"></script>
   
   <style>
     * {
@@ -886,28 +886,22 @@
       
       console.log('Creating peer with ID:', simplePeerId);
       
-      // Helper to create Peer with a given host
-      function createPeer() {
-        console.log('Connecting to PeerJS cloud');
-        return new Peer(simplePeerId, {
-          debug: 2,
-          host: 'peerjs.com',
-          port: 443,
-          path: '/',
-          key: 'peerjs',
-          secure: true,
-          pingInterval: 5000,
-          config: {
-            iceServers: [
-              { urls: 'stun:stun.l.google.com:19302' },
-              { urls: 'stun:global.stun.twilio.com:3478' }
-            ]
-          }
-        });
-      }
-      
-      // Create peer (cloud default)
-      peer = createPeer();
+      // Use simple peer ID with enhanced config
+      peer = new Peer(simplePeerId, {
+        debug: 2,
+        host: 'peerjs.com',
+        port: 443,
+        path: '/',
+        key: 'peerjs',
+        secure: true,
+        pingInterval: 5000,
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:global.stun.twilio.com:3478' }
+          ]
+        }
+      });
       
       peer.on('open', (id) => {
         console.log('Connected with username:', id);
@@ -941,6 +935,7 @@
       });
       
       peer.on('call', handleIncomingCall);
+      
       peer.on('error', (err) => {
         console.error('Peer error:', err);
         console.log('Error details:', {
@@ -949,7 +944,6 @@
           protocol: window.location.protocol,
           host: window.location.host
         });
-        
         updateStatus(false);
         
         // More specific error messages for common deployment issues
@@ -957,31 +951,16 @@
           addSystemMessage('SSL Error: Please access the site via HTTPS');
         } else if (err.type === 'server-error') {
           addSystemMessage('Server Error: PeerJS server unavailable');
-        } else if (err.type === 'network' || err.type === 'webrtc' || String(err).includes('Lost connection')) {
-          addSystemMessage('Network Error: trying to reconnect...');
-          try { peer.reconnect(); } catch (_) {}
+        } else if (err.type === 'network') {
+          addSystemMessage('Network Error: Check internet connection');
         } else {
           addSystemMessage(`Connection error: ${err.type}`);
         }
-        // Attempt reconnect on disconnect
-        try {
-          if (peer.disconnected || String(err).includes('Lost connection')) {
-            addSystemMessage('Retrying connection...');
-            try { peer.reconnect(); } catch (_) {}
-          }
-        } catch(_e) {}
       });
       
       peer.on('disconnected', () => {
         updateStatus(false);
         addSystemMessage('Disconnected from network');
-        try {
-          addSystemMessage('Attempting to reconnect...');
-          peer.reconnect();
-        } catch (e) {
-          console.log('Reconnect error:', e);
-          setTimeout(() => { try { peer.reconnect(); } catch(_){} }, 2000);
-        }
       });
     }
     
@@ -1166,7 +1145,7 @@
       }
     }
     
-    function setupVoiceDetection(localStream, remoteStream) {
+    function setupVoiceDetection(stream, remoteStream) {
       window.setupFullscreenOverlay = function() {
         if (document.getElementById('mobileFullscreenOverlay')) return;
         const wrap = document.createElement('div');
@@ -1186,7 +1165,7 @@
         btn.onclick = async () => {
           try {
             if (remoteVideo.requestFullscreen) await remoteVideo.requestFullscreen();
-            else if (remoteVideo.webkitEnterFullScreen) remoteVideo.webkitEnterFullScreen();
+            else if ((remoteVideo).webkitEnterFullScreen) (remoteVideo).webkitEnterFullScreen();
           } catch (_) {}
         };
         videoContainer.style.position = 'relative';
@@ -1292,8 +1271,6 @@
         clearInterval(voiceDetectionInterval);
         voiceDetectionInterval = null;
       }
-      
-      // Remove fullscreen overlay if present
       const ov = document.getElementById('mobileFullscreenOverlay');
       if (ov && ov.parentNode) ov.parentNode.removeChild(ov);
       
@@ -1414,38 +1391,6 @@
       }
     }
     
-    // Attach recovery handlers to keep mic active even after sleep
-    function attachMicRecovery(stream, call) {
-      try {
-        const audioTrack = stream.getAudioTracks()[0];
-        if (!audioTrack) return;
-
-        const reattach = async () => {
-          try {
-            const newStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-            const newAudio = newStream.getAudioTracks()[0];
-            if (!newAudio) return;
-            if (call && call.peerConnection) {
-              const sender = call.peerConnection.getSenders().find(s => s.track && s.track.kind === 'audio');
-              if (sender) await sender.replaceTrack(newAudio);
-            }
-            // swap in localStream
-            try { stream.addTrack(newAudio); } catch(_){}
-            addSystemMessage('🎤 Microphone recovered after suspend');
-          } catch (e) { console.log('Mic recover error:', e); }
-        };
-
-        audioTrack.addEventListener('ended', reattach);
-        // periodic health check
-        const interval = setInterval(() => {
-          if (!currentCall || !currentCall.open) { clearInterval(interval); return; }
-          if (audioTrack.readyState !== 'live' || audioTrack.muted) {
-            reattach();
-          }
-        }, 5000);
-      } catch(e) { console.log('attachMicRecovery error', e); }
-    }
-
     function startCall(audio, video) {
       if (!isOnline) {
         addSystemMessage('Cannot call - user is offline');
@@ -1485,7 +1430,6 @@
           
           const call = peer.call(connection.peer, stream);
           currentCall = call;
-          attachMicRecovery(stream, call);
           
           call.on('stream', (remoteStream) => {
             console.log('Received remote stream:', remoteStream);
@@ -1497,15 +1441,11 @@
             remoteVideo.setAttribute('playsinline', 'true');
             remoteVideo.setAttribute('autoplay', 'true');
             const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
-            remoteVideo.controls = isMobile; // show native controls on mobile
+            remoteVideo.controls = isMobile;
             remoteVideo.muted = false;
             remoteVideo.volume = 1.0;
-            remoteVideo.style.pointerEvents = isMobile ? 'auto' : 'none'; // allow taps on mobile
-            
-            // Add simple mobile fullscreen button overlay
-            if (isMobile) {
-              setupFullscreenOverlay();
-            }
+            remoteVideo.style.pointerEvents = isMobile ? 'auto' : 'none';
+            if (isMobile) { setupFullscreenOverlay(); }
             
             // Force play the stream with multiple attempts
             const playStream = async () => {
@@ -1552,9 +1492,6 @@
             // Update button text for switching
             updateCallButtonsForActiveCall();
           });
-          
-          // Enter PiP when possible so audio keeps running in background
-          ensurePiP();
           
           call.on('close', () => {
             addSystemMessage('Call ended');
@@ -1669,6 +1606,9 @@
             setupVoiceDetection(localStream, remoteStream);
           });
           
+          // Enter PiP when possible so audio keeps running in background
+          ensurePiP();
+          
           call.on('close', () => {
             console.log('Screen share call closed');
             addSystemMessage('Screen sharing ended');
@@ -1727,9 +1667,6 @@
             
             call.on('stream', (remoteStream) => {
               console.log('Incoming call - received remote stream:', remoteStream);
-
-              // Attach recovery for incoming side as well
-              try { attachMicRecovery(stream, call); } catch(_){}
               
               // Check if remote stream has video tracks
               const videoTracks = remoteStream.getVideoTracks();
