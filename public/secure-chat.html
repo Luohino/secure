@@ -885,6 +885,7 @@
       const simplePeerId = currentUser.toLowerCase();
       
       console.log('Creating peer with ID:', simplePeerId);
+      addSystemMessage('🔄 Creating peer connection...');
       
       // Use simple peer ID with enhanced config
       peer = new Peer(simplePeerId, {
@@ -946,15 +947,20 @@
         });
         updateStatus(false);
         
-        // More specific error messages for common deployment issues
-        if (err.type === 'ssl-unavailable') {
-          addSystemMessage('SSL Error: Please access the site via HTTPS');
+        // More specific error messages
+        if (err.type === 'unavailable-id') {
+          addSystemMessage('⚠️ Username already in use. Close other tabs or wait 60s.');
+        } else if (err.type === 'peer-unavailable') {
+          addSystemMessage('❌ Cannot find other user. They must be online.');
+        } else if (err.type === 'ssl-unavailable') {
+          addSystemMessage('SSL Error: Please access via HTTPS');
         } else if (err.type === 'server-error') {
-          addSystemMessage('Server Error: PeerJS server unavailable');
-        } else if (err.type === 'network') {
-          addSystemMessage('Network Error: Check internet connection');
+          addSystemMessage('Server Error: PeerJS unavailable');
+        } else if (err.type === 'network' || err.type === 'webrtc') {
+          addSystemMessage('Network Error: trying to reconnect...');
+          setTimeout(() => { try { peer.reconnect(); } catch (_) {} }, 3000);
         } else {
-          addSystemMessage(`Connection error: ${err.type}`);
+          addSystemMessage(`Connection error: ${err.type} - ${err.message}`);
         }
       });
       
