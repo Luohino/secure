@@ -742,6 +742,9 @@
     let localStream = null;
     let isOnline = false;
     let otherUser = null;
+    let reconnectAttempts = 0;
+    let maxReconnectAttempts = 3;
+    let reconnectTimeout = null;
     
     // DOM elements
     const loginScreen = document.getElementById('loginScreen');
@@ -881,23 +884,38 @@
       console.log('Initializing peer...');
       addSystemMessage('Connecting...');
       
+      // Clear any existing reconnect timeout
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+        reconnectTimeout = null;
+      }
+      
       // Use simple peer ID - just the username
       const simplePeerId = currentUser.toLowerCase();
       
       console.log('Creating peer with ID:', simplePeerId);
       addSystemMessage('🔄 Creating peer connection...');
       
-      // Use default PeerJS cloud server (most reliable)
-      peer = new Peer(simplePeerId, {
-        debug: 1,
+      // Configure PeerJS with multiple server options for better reliability
+      const peerConfig = {
+        debug: 0, // Reduce console spam in production
+        host: '0.peerjs.com',
+        secure: true,
+        port: 443,
+        path: '/',
         config: {
           iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:global.stun.twilio.com:3478' },
-            { urls: 'stun:stun1.l.google.com:19302' }
-          ]
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun.services.mozilla.com:3478' }
+          ],
+          sdpSemantics: 'unified-plan'
         }
-      });
+      };
+      
+      // Use default cloud server
+      peer = new Peer(simplePeerId, peerConfig);
       
       peer.on('open', (id) => {
         console.log('Connected with username:', id);
@@ -908,7 +926,14 @@
           userAgent: navigator.userAgent.substr(0, 100)
         });
         
-        addSystemMessage('Connected as ' + currentUser + ' (ID: ' + id + ')');
+        // Reset reconnection counter on successful connection
+        reconnectAttempts = 0;
+        if (reconnectTimeout) {
+          clearTimeout(reconnectTimeout);
+          reconnectTimeout = null;
+        }
+        
+        addSystemMessage('✅ Connected as ' + currentUser);
         if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
           addSystemMessage('⚠️ Using HTTP - some features may not work. Use HTTPS for full functionality.');
         }
@@ -938,31 +963,86 @@
           type: err.type,
           message: err.message,
           protocol: window.location.protocol,
-          host: window.location.host
+          host: window.location.host,
+          reconnectAttempts: reconnectAttempts
         });
         updateStatus(false);
         
-        // More specific error messages
+        // More specific error messages with retry limits
         if (err.type === 'unavailable-id') {
+          reconnectAttempts = 0; // Reset - not a network issue
           addSystemMessage('⚠️ Username already in use. Close other tabs or wait 60s.');
         } else if (err.type === 'peer-unavailable') {
+          reconnectAttempts = 0; // Reset - not a network issue
           addSystemMessage('❌ Cannot find other user. They must be online.');
         } else if (err.type === 'ssl-unavailable') {
-          addSystemMessage('SSL Error: Please access via HTTPS');
+          reconnectAttempts = 0; // Reset - configuration issue
+          addSystemMessage('⚠️ SSL Error: Please access via HTTPS');
         } else if (err.type === 'server-error') {
-          addSystemMessage('Server Error: PeerJS unavailable');
+          handleReconnection('Server Error: PeerJS unavailable');
         } else if (err.type === 'network' || err.type === 'webrtc') {
-          addSystemMessage('Network Error: trying to reconnect...');
-          setTimeout(() => { try { peer.reconnect(); } catch (_) {} }, 3000);
+          handleReconnection('Network Error');
+        } else if (err.type === 'socket-error') {
+          handleReconnection('Socket Error');
+        } else if (err.type === 'socket-closed') {
+          handleReconnection('Connection lost');
         } else {
-          addSystemMessage(`Connection error: ${err.type} - ${err.message}`);
+          addSystemMessage(`Connection error: ${err.type}`);
+          if (reconnectAttempts < maxReconnectAttempts) {
+            handleReconnection('Retrying connection');
+          }
         }
       });
       
       peer.on('disconnected', () => {
         updateStatus(false);
         addSystemMessage('Disconnected from network');
+        
+        // Try to reconnect with exponential backoff
+        if (reconnectAttempts < maxReconnectAttempts) {
+          handleReconnection('Attempting to reconnect');
+        } else {
+          addSystemMessage('❌ Max reconnection attempts reached. Please refresh the page.');
+        }
       });
+    }
+    
+    // Handle reconnection with exponential backoff and retry limits
+    function handleReconnection(message) {
+      if (reconnectAttempts >= maxReconnectAttempts) {
+        addSystemMessage('❌ Unable to connect. Please:');
+        addSystemMessage('1. Check your internet connection');
+        addSystemMessage('2. Refresh the page');
+        addSystemMessage('3. Try again in a few moments');
+        return;
+      }
+      
+      reconnectAttempts++;
+      const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 10000); // Max 10s
+      
+      addSystemMessage(`${message}... (${reconnectAttempts}/${maxReconnectAttempts})`);
+      
+      // Clear existing timeout
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
+      
+      reconnectTimeout = setTimeout(() => {
+        try {
+          if (peer && !peer.destroyed) {
+            peer.reconnect();
+          } else {
+            // Reinitialize peer if destroyed
+            addSystemMessage('Reinitializing connection...');
+            initializePeer();
+          }
+        } catch (e) {
+          console.error('Reconnection failed:', e);
+          if (reconnectAttempts < maxReconnectAttempts) {
+            handleReconnection('Retrying connection');
+          }
+        }
+      }, delay);
     }
     
     // Show connection input with auto-fill for simple usernames
