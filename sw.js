@@ -1,7 +1,7 @@
 const CACHE = "secure-chat-cache-v5";
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(["/", "/index.html"]))
+    caches.open(CACHE).then((cache) => cache.addAll(["/", "/secure-chat.html"]))
   );
   self.skipWaiting();
 });
