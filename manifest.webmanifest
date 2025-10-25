@@ -1,9 +1,0 @@
-{
-  "name": "Secure Chat",
-  "short_name": "SecureChat",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#e6e7ee",
-  "theme_color": "#e6e7ee",
-  "icons": []
-}
