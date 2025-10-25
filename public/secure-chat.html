@@ -896,13 +896,10 @@
       console.log('Creating peer with ID:', simplePeerId);
       addSystemMessage('🔄 Creating peer connection...');
       
-      // Configure PeerJS with multiple server options for better reliability
+      // Configure PeerJS - use default cloud infrastructure (most reliable)
+      // Don't specify host/port to let PeerJS use its default working servers
       const peerConfig = {
         debug: 0, // Reduce console spam in production
-        host: '0.peerjs.com',
-        secure: true,
-        port: 443,
-        path: '/',
         config: {
           iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
@@ -914,7 +911,7 @@
         }
       };
       
-      // Use default cloud server
+      // Initialize peer with default PeerJS cloud server
       peer = new Peer(simplePeerId, peerConfig);
       
       peer.on('open', (id) => {
